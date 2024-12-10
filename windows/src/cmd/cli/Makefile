@@ -1,5 +1,7 @@
 export PATH := /usr/local/go/bin:$(PATH)
 
+all: dm-cli dm-cli.exe
+
 dm-cli: force
 	go build -o dm-cli
 
@@ -8,5 +10,5 @@ dm-cli.exe: force
 
 graph:
 	gnuplot -p graph.gnuplot && xdg-open telemetry.png
-
+	
 force:

@@ -10,7 +10,6 @@ import (
 	"context"
 
 	"github.com/sourcegraph/conc"
-	"github.com/albenik/go-serial"
 
 	. "dronmotors/dmetrics/pkg/helpers"
 	. "dronmotors/dmetrics/internal/device"
@@ -32,7 +31,7 @@ type device struct {
 	status int
 	lastText string
 
-	sp serial.Port
+	file portType
 	cancel context.CancelCauseFunc
 	controlMtx sync.Mutex
 }
@@ -72,24 +71,9 @@ func (dev device) Methods() []string {
 	}
 }
 
-func (dev *device) open() error {
-	mode := &serial.Mode{}
-}
-
-	if sp, err := serial.Open(dev.dsn, mode); err != nil {
-		return err
-	} else {
-		dev.sp = sp
-	}
-
-	return nil
-}
-
 func (dev *device) close() error {
-	return dev.sp.Close()
+	return dev.file.Close()
 }
-
-
 
 func cmdf(t string, args ...interface{}) string {
 	return fmt.Sprintf("/" + t + "\n", args...)
@@ -104,7 +88,7 @@ func (dev *device) control(cmd string, deadline time.Duration) (interface{}, err
 	defer dev.controlMtx.Unlock()
 
 	dev.lastText = "?" // reset before sending command
-	if n, err := dev.sp.Write([]byte(cmd)); err != nil {
+	if n, err := dev.file.Write([]byte(cmd)); err != nil {
 		return nil, err
 	} else if n != len(cmd) {
 		return nil, errorf("control write error, fix the code")
@@ -266,13 +250,15 @@ func (dev *device) process(parentCtx context.Context) error {
 		}
 	}
 
-	scanner := bufio.NewScanner(ContextualReader(ctx, dev.sp))
+	scanner := bufio.NewScanner(ContextualReader(ctx, dev.file))
 	scanner.Split(splitter)
 
 	// TODO: scanner timeout
 
 	for scanner.Scan() {
-		if t := scanner.Text(); len(t) > 0 {
+		if ctx.Err() != nil{
+			return ctx.Err()
+		} else if t := scanner.Text(); len(t) > 0 {
 			if f, err := decodeFrame([]byte(t)); err != nil {
 				fmt.Println(err)
 			} else {
@@ -317,7 +303,7 @@ func (dev *device) StartUp(parentCtx context.Context) error {
 
 		dev.Go(func() {
 			defer func() {
-				dev.close()
+				defer dev.close()
 				if err := dev.disconnect(); err != nil {
 					fmt.Println(err)
 				}
